@@ -58,10 +58,13 @@ movie-recommender/
 │   ├── collaborative.py   # matrix-factorization (SVD) recommender
 │   ├── content_based.py   # TF-IDF genre-similarity recommender
 │   ├── recommender.py     # hybrid model combining both
-│   ├── evaluate.py        # RMSE + precision@k / recall@k
+│   ├── baselines.py       # global-mean / bias / popularity baselines
+│   ├── metrics.py         # precision, recall, NDCG, MAP @k
+│   ├── evaluate.py        # compares every model on the same split
 │   └── api.py             # FastAPI service
 ├── tests/
-│   └── test_recommender.py
+│   ├── test_recommender.py
+│   └── test_metrics_baselines.py
 ├── requirements.txt
 └── README.md
 ```
@@ -91,30 +94,31 @@ into git.
 
 ## Evaluation
 
-Ratings are split **per user by time** — each user's most recent 20% of ratings
-form the test set — so the model is never trained on a user's future to predict
-their past. Two metrics are reported:
+Every model is scored on the **same** per-user temporal split — each user's most
+recent 20% of ratings form the test set, so nothing trains on a user's future —
+with the same metrics, so the fancier models have to earn their complexity
+against simple baselines. `python -m src.evaluate`:
 
-- **RMSE** — how close predicted ratings are to actual held-out ratings.
-- **Precision@10 / Recall@10** — of the 10 movies recommended to each user, how
-  many they actually rated highly (≥4) in the held-out set. This matters more
-  than RMSE for a real product, since users see a *ranked list*, not raw
-  predicted scores.
+| Model | RMSE | P@10 | R@10 | NDCG@10 | MAP@10 |
+|-------|------|------|------|---------|--------|
+| Global mean | 1.069 | 0.057 | 0.052 | 0.076 | 0.038 |
+| Bias baseline | **0.903** | 0.043 | 0.033 | 0.055 | 0.025 |
+| Popularity | 1.023 | 0.057 | 0.052 | 0.076 | 0.038 |
+| Matrix factorization | 0.953 | 0.065 | 0.065 | 0.086 | 0.041 |
+| **Hybrid (CF + content)** | — | **0.069** | **0.070** | **0.088** | **0.042** |
 
-### Results (ml-latest-small, 50 latent factors)
+**The interesting result — RMSE and ranking disagree.** A simple
+global-mean + user-bias + item-bias baseline actually gets the *best RMSE*
+(0.903, beating matrix factorization's 0.953). That's a well-known effect:
+plain SVD on raw ratings is not optimized for rating-prediction error. But RMSE
+is not what a recommender is for — users see a *ranked list*. On the ranking
+metrics that matter (Precision/Recall/NDCG/MAP@10), the **hybrid model wins**,
+and both it and matrix factorization clearly beat the non-personalized
+popularity baseline. So the project is tuned for **top-N ranking, not RMSE** —
+and the baselines are what make that trade-off visible rather than assumed.
 
-| Metric | Value |
-|--------|-------|
-| RMSE          | 0.953 |
-| Precision@10  | 0.065 |
-| Recall@10     | 0.065 |
-
-**Reading these honestly:** an RMSE around 0.95 is in the normal range for
-matrix factorization on MovieLens. Precision@10 looks small, but it is measured
-under a deliberately hard setup — recommending 10 movies out of ~9,700 and
-checking whether they land on the handful of movies a user rated highly in a
-*future* time window. Recommending from the full catalog against a strict
-temporal split is much harder than the random-split numbers often quoted, so
-these are realistic rather than inflated. The natural next steps to push
-precision up would be adding an implicit-feedback signal (what users *watched*,
-not just rated) and tuning the number of latent factors.
+The absolute ranking numbers are modest by design: recommending 10 of ~9,700
+movies and checking whether they hit the handful a user liked in a *future*
+window is far harder than the random-split numbers usually quoted. Natural next
+steps: an implicit-feedback signal (what users *watched*, not just rated) and a
+learning-to-rank objective instead of SVD reconstruction.
