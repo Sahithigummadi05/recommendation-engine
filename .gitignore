@@ -5,3 +5,6 @@ __pycache__/
 data/ml-latest-small/
 data/*.zip
 .pytest_cache/
+.DS_Store
+.vscode/
+.idea/
